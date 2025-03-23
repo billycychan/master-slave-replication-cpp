@@ -1,0 +1,47 @@
+# Build outputs
+*.o
+*.obj
+*.exe
+*.out
+*.dll
+*.lib
+*.a
+*.so
+*.dylib
+
+# Debug symbols
+*.pdb
+*.idb
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build directories
+build/
+cmake-build-*
+out/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+
+# Dependencies
+deps/
+external/
+
+# Test outputs
+test-results/
+coverage/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
