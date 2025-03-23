@@ -45,8 +45,10 @@ Each log entry includes:
 ### Using CMake
 
 # Clone the repository
+```bash
 git clone https://github.com/yourusername/master-slave-replication-cpp.git
 cd master-slave-replication-cpp
+```
 
 # Create build directory
 ```bash
