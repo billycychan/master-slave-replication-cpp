@@ -46,7 +46,7 @@ Each log entry includes:
 
 # Clone the repository
 ```bash
-git clone https://github.com/yourusername/master-slave-replication-cpp.git
+git clone https://github.com/billycychan/master-slave-replication-cpp.git
 cd master-slave-replication-cpp
 ```
 
