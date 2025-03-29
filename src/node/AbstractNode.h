@@ -1,55 +1,99 @@
-// src/node/AbstractNode.h
 #ifndef ABSTRACT_NODE_H
 #define ABSTRACT_NODE_H
 
-#include "Node.h"
+#include "node/Node.h"
+#include "model/LogEntry.h"
+
 #include <string>
 #include <map>
 #include <vector>
+#include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <condition_variable>
 #include <atomic>
-#include <future>
-#include <iostream>
+#include <queue>
+#include <functional>
+
+namespace replication {
+namespace node {
 
 /**
  * Abstract base class for nodes in the replication system.
  * Provides common functionality for both master and slave nodes.
  */
 class AbstractNode : public Node {
-protected:
-    std::string id;
-    std::atomic<bool> up;
-    std::map<std::string, std::string> dataStore;
-    std::vector<LogEntry> log;
-    mutable std::shared_mutex lock;
-    std::atomic<int64_t> lastAppliedIndex;
-    
-    // Thread pool for replication tasks
-    std::vector<std::future<void>> replicationTasks;
-
 public:
     /**
-     * Constructor for a node.
-     * @param id the unique ID of the node
+     * Constructs a node with the given ID.
      */
-    AbstractNode(const std::string& id);
+    explicit AbstractNode(const std::string& id);
     
     /**
-     * Destructor to clean up resources.
+     * Virtual destructor to ensure proper cleanup.
      */
     virtual ~AbstractNode();
-    
-    // Implement Node interface methods
+
+    // Node interface implementation
     std::string getId() const override;
     bool isUp() const override;
     void goDown() override;
     void goUp() override;
     std::string read(const std::string& key) override;
+    bool deleteKey(const std::string& key) override;
     std::map<std::string, std::string> getDataStore() const override;
-    int64_t getLastLogIndex() const override;
-    bool applyLogEntry(const LogEntry& entry, std::shared_mutex& lock) override;
-    std::vector<LogEntry> getLogEntriesAfter(int64_t afterIndex) const override;
+    long getLastLogIndex() const override;
+    bool applyLogEntry(const model::LogEntry& entry, 
+                      std::shared_ptr<std::shared_mutex> lock) override;
+    std::vector<model::LogEntry> getLogEntriesAfter(long afterIndex) const override;
+
+protected:
+    // Thread pool implementation for asynchronous execution
+    class ThreadPool {
+    public:
+        explicit ThreadPool(size_t num_threads);
+        ~ThreadPool();
+        
+        template<class F>
+        void enqueue(F&& f);
+        
+    private:
+        std::vector<std::thread> workers;
+        std::queue<std::function<void()>> tasks;
+        
+        std::mutex queue_mutex;
+        std::condition_variable condition;
+        bool stop;
+    };
+    
+    std::string id_;
+    std::atomic<bool> up_;
+    std::map<std::string, std::string> dataStore_;
+    std::vector<model::LogEntry> log_;
+    std::shared_ptr<std::shared_mutex> lock_;
+    std::atomic<long> lastAppliedIndex_;
+    std::unique_ptr<ThreadPool> replicationExecutor_;
+    
+    // Mutex for thread-safe access to the log and data store
+    mutable std::mutex logMutex_;
+    mutable std::mutex dataStoreMutex_;
 };
+
+// Template implementation must be in the header
+template<class F>
+void AbstractNode::ThreadPool::enqueue(F&& f) {
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex);
+        if(stop) {
+            throw std::runtime_error("enqueue on stopped ThreadPool");
+        }
+        tasks.emplace(std::forward<F>(f));
+    }
+    condition.notify_one();
+}
+
+} // namespace node
+} // namespace replication
 
 #endif // ABSTRACT_NODE_H

@@ -2,57 +2,70 @@
 #define LOG_ENTRY_H
 
 #include <string>
-#include <chrono>
+#include <ctime>
+
+namespace replication {
+namespace model {
 
 /**
  * Represents a log entry in the replication log.
- * Each entry contains information about a write operation.
+ * Each entry contains information about a write or delete operation.
  */
 class LogEntry {
-private:
-    int64_t id;
-    std::string key;
-    std::string value;
-    int64_t timestamp;
-
 public:
     /**
-     * Constructor for a log entry.
-     * @param id The unique identifier for the log entry
-     * @param key The key of the data being updated
-     * @param value The value of the data being updated
+     * Enum representing the type of operation in the log entry.
      */
-    LogEntry(int64_t id, const std::string& key, const std::string& value);
+    enum class OperationType {
+        WRITE,
+        DELETE
+    };
 
     /**
-     * Gets the unique identifier of the log entry.
-     * @return The log entry ID
+     * Creates a new log entry for a write operation.
+     * @param id the log entry ID
+     * @param key the key being written
+     * @param value the value being written
      */
-    int64_t getId() const;
+    LogEntry(long id, const std::string& key, const std::string& value);
 
     /**
-     * Gets the key of the data being updated.
-     * @return The key
+     * Creates a new log entry with a specified operation type.
+     * @param id the log entry ID
+     * @param key the key being operated on
+     * @param value the value (for write operations, empty for delete operations)
+     * @param operationType the type of operation
      */
+    LogEntry(long id, const std::string& key, const std::string& value, 
+             OperationType operationType);
+
+    // Getters
+    long getId() const;
     const std::string& getKey() const;
-
-    /**
-     * Gets the value of the data being updated.
-     * @return The value
-     */
     const std::string& getValue() const;
+    long getTimestamp() const;
+    OperationType getOperationType() const;
 
     /**
-     * Gets the timestamp when the log entry was created.
-     * @return The timestamp in milliseconds since epoch
+     * Checks if this log entry is a delete operation.
+     * @return true if this is a delete operation, false otherwise
      */
-    int64_t getTimestamp() const;
+    bool isDelete() const;
 
     /**
-     * Returns a string representation of the log entry.
-     * @return A string representation
+     * Convert log entry to string representation
      */
     std::string toString() const;
+
+private:
+    long id_;
+    std::string key_;
+    std::string value_;
+    long timestamp_;
+    OperationType operationType_;
 };
+
+} // namespace model
+} // namespace replication
 
 #endif // LOG_ENTRY_H
