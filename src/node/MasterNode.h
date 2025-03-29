@@ -1,13 +1,17 @@
-// src/node/MasterNode.h
 #ifndef MASTER_NODE_H
 #define MASTER_NODE_H
 
-#include "AbstractNode.h"
+#include "node/AbstractNode.h"
 #include <set>
 #include <unordered_map>
+#include <atomic>
 #include <memory>
+#include <future>
 
-// Forward declaration to handle circular dependency
+namespace replication {
+namespace node {
+
+// Forward declaration
 class SlaveNode;
 
 /**
@@ -16,24 +20,17 @@ class SlaveNode;
  * them to slave nodes.
  */
 class MasterNode : public AbstractNode {
-private:
-    std::set<std::shared_ptr<SlaveNode>> slaves;
-    std::unordered_map<int64_t, std::set<std::string>> pendingReplications;
-    std::atomic<int64_t> nextLogId;
-
-    /**
-     * Replicates a log entry to all registered slave nodes asynchronously.
-     * @param entry the log entry to replicate
-     */
-    void replicateToSlaves(const LogEntry& entry);
-
 public:
     /**
-     * Constructor for the master node.
-     * @param id the unique ID of the node
+     * Constructs a master node with the given ID.
      */
-    MasterNode(const std::string& id);
+    explicit MasterNode(const std::string& id);
     
+    /**
+     * Destructor
+     */
+    ~MasterNode() override;
+
     /**
      * Registers a slave node with this master.
      * @param slave the slave node to register
@@ -49,15 +46,32 @@ public:
     bool write(const std::string& key, const std::string& value);
     
     /**
-     * Shuts down the master node, cleaning up any pending tasks.
+     * Deletes a key-value pair from the master and replicates the delete operation to the slaves.
+     * @param key the key to delete
+     * @return true if the delete was successful
      */
-    void shutdown();
+    bool deleteKey(const std::string& key) override;
     
     /**
-     * Makes a slave node recover by sending it all missing log entries.
-     * @param slave the slave node to recover
+     * Shuts down the replication executor service.
      */
-    void recoverSlave(std::shared_ptr<SlaveNode> slave);
+    void shutdown();
+
+private:
+    /**
+     * Replicates a log entry to all registered slave nodes asynchronously.
+     * @param entry the log entry to replicate
+     */
+    void replicateToSlaves(const model::LogEntry& entry);
+
+    std::set<std::shared_ptr<SlaveNode>> slaves_;
+    std::unordered_map<long, std::set<std::string>> pendingReplications_;
+    std::atomic<long> nextLogId_;
+    mutable std::mutex slavesMutex_;
+    mutable std::mutex pendingReplicationsMutex_;
 };
+
+} // namespace node
+} // namespace replication
 
 #endif // MASTER_NODE_H

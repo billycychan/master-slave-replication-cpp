@@ -1,39 +1,55 @@
-// src/node/MasterNode.cpp
 #include "node/MasterNode.h"
 #include "node/SlaveNode.h"
 #include <iostream>
-#include <future>
+
+namespace replication {
+namespace node {
 
 MasterNode::MasterNode(const std::string& id)
-    : AbstractNode(id), nextLogId(1) {
+    : AbstractNode(id),
+      nextLogId_(1) {
+}
+
+MasterNode::~MasterNode() {
+    shutdown();
 }
 
 void MasterNode::registerSlave(std::shared_ptr<SlaveNode> slave) {
-    slaves.insert(slave);
-    std::cout << "Master " << id << " registered slave: " << slave->getId() << std::endl;
+    std::lock_guard<std::mutex> guard(slavesMutex_);
+    slaves_.insert(slave);
+    std::cout << "Master " << id_ << " registered slave: " << slave->getId() << std::endl;
 }
 
 bool MasterNode::write(const std::string& key, const std::string& value) {
-    if (!up.load()) {
-        std::cout << "Master " << id << " is DOWN, cannot write" << std::endl;
+    if (!up_) {
+        std::cout << "Master " << id_ << " is DOWN, cannot write" << std::endl;
         return false;
     }
 
-    std::unique_lock<std::shared_mutex> writeLock(lock);
+    std::unique_lock<std::shared_mutex> writeLock(*lock_);
     
-    // Create a new log entry
-    LogEntry entry(nextLogId.fetch_add(1), key, value);
+    // Create a new log entry for write operation
+    model::LogEntry entry(nextLogId_++, key, value, model::LogEntry::OperationType::WRITE);
     
     // Apply to the master's data store first
-    dataStore[key] = value;
-    log.push_back(entry);
-    lastAppliedIndex.store(entry.getId());
+    dataStore_[key] = value;
     
-    std::cout << "Master " << id << " wrote " << key << "=" << value 
-             << " (Log ID: " << entry.getId() << ")" << std::endl;
+    // Add to log
+    {
+        std::lock_guard<std::mutex> logLock(logMutex_);
+        log_.push_back(entry);
+    }
+    
+    lastAppliedIndex_ = entry.getId();
+    
+    std::cout << "Master " << id_ << " wrote " << key << "=" << value 
+              << " (Log ID: " << entry.getId() << ")" << std::endl;
     
     // Track replication status
-    pendingReplications[entry.getId()] = std::set<std::string>();
+    {
+        std::lock_guard<std::mutex> pendingLock(pendingReplicationsMutex_);
+        pendingReplications_[entry.getId()] = std::set<std::string>();
+    }
     
     // Asynchronously replicate to slaves
     replicateToSlaves(entry);
@@ -41,65 +57,87 @@ bool MasterNode::write(const std::string& key, const std::string& value) {
     return true;
 }
 
-void MasterNode::replicateToSlaves(const LogEntry& entry) {
-    for (auto& slave : slaves) {
-        auto task = std::async(std::launch::async, [this, slave, entry]() {
-            if (slave->isUp()) {
-                bool success = slave->applyLogEntry(entry, lock);
-                if (success) {
-                    // Track successful replication
-                    auto slaveSet = pendingReplications.find(entry.getId());
-                    if (slaveSet != pendingReplications.end()) {
-                        slaveSet->second.insert(slave->getId());
-                        std::cout << "Master " << id << " replicated log entry " << entry.getId() 
-                                << " to slave " << slave->getId() << std::endl;
-                    }
-                } else {
-                    recoverSlave(slave);
-                }
-            } else {
-                std::cout << "Master " << id << " couldn't replicate to slave " 
-                        << slave->getId() << " (DOWN)" << std::endl;
-            }
-        });
-        replicationTasks.push_back(std::move(task));
+bool MasterNode::deleteKey(const std::string& key) {
+    if (!up_) {
+        std::cout << "Master " << id_ << " is DOWN, cannot delete" << std::endl;
+        return false;
     }
+
+    std::unique_lock<std::shared_mutex> writeLock(*lock_);
+    
+    // Check if the key exists before attempting to delete
+    auto it = dataStore_.find(key);
+    if (it == dataStore_.end()) {
+        std::cout << "Master " << id_ << " could not delete key '" << key << "' (not found)" << std::endl;
+        return false;
+    }
+    
+    // Create a new log entry for delete operation
+    model::LogEntry entry(nextLogId_++, key, "", model::LogEntry::OperationType::DELETE);
+    
+    // Remove the key from the data store
+    dataStore_.erase(it);
+    
+    // Add to log
+    {
+        std::lock_guard<std::mutex> logLock(logMutex_);
+        log_.push_back(entry);
+    }
+    
+    lastAppliedIndex_ = entry.getId();
+    
+    std::cout << "Master " << id_ << " deleted key '" << key 
+              << "' (Log ID: " << entry.getId() << ")" << std::endl;
+    
+    // Track replication status
+    {
+        std::lock_guard<std::mutex> pendingLock(pendingReplicationsMutex_);
+        pendingReplications_[entry.getId()] = std::set<std::string>();
+    }
+    
+    // Asynchronously replicate to slaves
+    replicateToSlaves(entry);
+    
+    return true;
 }
 
-void MasterNode::recoverSlave(std::shared_ptr<SlaveNode> slave) {
-    if (!up.load() || !slave->isUp()) {
-        std::cout << "Master " << id << " or Slave " << slave->getId() 
-                 << " is DOWN, cannot recover" << std::endl;
-        return;
+void MasterNode::replicateToSlaves(const model::LogEntry& entry) {
+    std::vector<std::shared_ptr<SlaveNode>> currentSlaves;
+    
+    {
+        std::lock_guard<std::mutex> guard(slavesMutex_);
+        for (const auto& slave : slaves_) {
+            currentSlaves.push_back(slave);
+        }
     }
 
-    std::cout << "Master " << id << " starting recovery for slave " 
-             << slave->getId() << std::endl;
-
-    auto task = std::async(std::launch::async, [this, slave]() {
-        int64_t slaveLastIndex = slave->getLastLogIndex();
-        std::vector<LogEntry> missingEntries = getLogEntriesAfter(slaveLastIndex);
-
-        std::cout << "Master " << id << " sending " << missingEntries.size() 
-                << " log entries to slave " << slave->getId() << std::endl;
-
-        for (const LogEntry& entry : missingEntries) {
-            slave->applyLogEntry(entry, lock);
-        }
-
-        std::cout << "Master " << id << " completed recovery for slave " 
-                << slave->getId() << " up to log index " << slave->getLastLogIndex() << std::endl;
-    });
-    
-    replicationTasks.push_back(std::move(task));
+    for (const auto& slave : currentSlaves) {
+        replicationExecutor_->enqueue([this, slave, entry]() {
+            if (slave->isUp()) {
+                bool success = slave->applyLogEntry(entry, lock_);
+                if (success) {
+                    // Track successful replication
+                    std::lock_guard<std::mutex> pendingLock(pendingReplicationsMutex_);
+                    auto it = pendingReplications_.find(entry.getId());
+                    if (it != pendingReplications_.end()) {
+                        it->second.insert(slave->getId());
+                        std::cout << "Master " << id_ << " replicated log entry " << entry.getId() 
+                                  << " to slave " << slave->getId() << std::endl;
+                    }
+                } else {
+                    slave->recoverSlave();
+                }
+            } else {
+                std::cout << "Master " << id_ << " couldn't replicate to slave " 
+                          << slave->getId() << " (DOWN)" << std::endl;
+            }
+        });
+    }
 }
 
 void MasterNode::shutdown() {
-    // Wait for all pending replication tasks to complete
-    for (auto& task : replicationTasks) {
-        if (task.valid()) {
-            task.wait();
-        }
-    }
-    replicationTasks.clear();
+    // Thread pool is cleaned up in the AbstractNode destructor
 }
+
+} // namespace node
+} // namespace replication
