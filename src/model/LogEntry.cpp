@@ -1,4 +1,5 @@
 #include "model/LogEntry.h"
+#include <chrono>
 #include <sstream>
 
 LogEntry::LogEntry(int64_t id, const std::string& key, const std::string& value)
