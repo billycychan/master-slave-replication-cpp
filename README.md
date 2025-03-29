@@ -44,31 +44,62 @@ Each log entry includes:
 
 ### Using CMake
 
-# Clone the repository
 ```bash
+# Clone the repository
 git clone https://github.com/billycychan/master-slave-replication-cpp.git
 cd master-slave-replication-cpp
-```
 
 # Create build directory
-```bash
 mkdir -p build
 cd build
-```
+
 # Generate build files
-```
-cmake .. -G "Unix Makefiles"
-```
+cmake ..
+
 # Build the project
-```
 make
-```
 
 # Run the application
-```bash
-./replication_system
+./replication-system
 ```
-# How It Works
+
+### Running Tests
+
+The project includes a comprehensive test suite that verifies the functionality of the replication system, including fault tolerance features. To run the tests:
+
+```bash
+# From the build directory
+./replication-tests
+```
+
+The test suite includes:
+- **NodeTest**: Tests basic node operations, master-slave communication, and node failure/recovery scenarios
+- **MainTest**: Tests the main replication system API and data consistency
+- **FaultToleranceTest**: Tests the system's ability to handle node failures during operation
+
+## Project Structure
+
+```
+├── src/                    # Source code
+│   ├── main.cpp            # Main application entry point
+│   ├── model/              # Data models
+│   │   └── LogEntry.cpp    # Log entry implementation
+│   ├── node/               # Node implementations
+│   │   ├── AbstractNode.cpp
+│   │   ├── MasterNode.cpp
+│   │   └── SlaveNode.cpp
+│   ├── system/             # System management
+│   │   └── ReplicationSystem.cpp
+│   └── tests/              # Test suite
+│       ├── NodeTest.cpp
+│       ├── MainTest.cpp
+│       └── FaultToleranceTest.cpp
+├── build/                  # Build directory (generated)
+├── CMakeLists.txt         # CMake build configuration
+└── README.md              # This file
+```
+
+## How It Works
 
 1. Write operations are sent to the master node.
 2. The master creates a log entry and applies it to its local data store.
@@ -84,25 +115,84 @@ The system implements fault tolerance through:
 * **Log-Based Recovery**: Failed nodes can recover by requesting missing log entries.
 * **Node Status Tracking**: The system keeps track of which nodes are up or down.
 
-# Demonstration
+## Demonstration Mode
 
-The `main.cpp` file includes a demonstration that:
-1. Initializes the system with sample data
-2. Performs reads and writes
-3. Simulates node failures and recoveries
-4. Shows the final state of the data store
+The system includes a comprehensive demonstration mode that showcases all the key features. To run in demo mode, use the `--demo` flag when starting the application:
 
-You can observe the system in action by running the executable and watching the console output.
+```bash
+./replication-system --demo
+```
 
-# Interactive Mode
+The demonstration will automatically perform the following sequence of operations:
 
-The system also includes an interactive mode that allows you to manually issue commands:
-* `write <key> <value>`: Write a key-value pair to the master
-* `read <key>`: Read a value from a random slave
-* `show`: Display the current data store
-* `exit`: Exit the program
+1. **Initial Data Setup**:
+   - Writes three key-value pairs (`key1=value1`, `key2=value2`, `key3=value3`)
+   - Waits for replication to complete across all available slave nodes
 
-To enable interactive mode, uncomment the `interactiveMode(system)` line in `main.cpp`.
+2. **Read Operations**:
+   - Performs multiple read operations from slave nodes
+   - Displays the current contents of the data store
+
+3. **Data Modifications**:
+   - Adds additional data (`key4=value4`, `key5=value5`)
+   - Updates existing values (`key1=updated-value1`, `key3=updated-value3`)
+   - Demonstrates read operations after each modification
+
+4. **Delete Operations**:
+   - Removes specific keys from the data store (`key2`, `key4`)
+   - Shows read operations after deletion, displaying `<deleted>` for removed keys
+
+5. **Fault Tolerance Demonstration**:
+   - Runs for 30 seconds to showcase node failures and automatic recovery
+   - During this time, you'll see nodes randomly going down and coming back up
+   - The system continues to function despite node failures
+
+6. **Final State**:
+   - Displays the final state of the data store after all operations
+   - Shows how the system maintained data consistency throughout the process
+
+This demonstration provides a visual representation of how the replication system handles various operations and maintains fault tolerance in the face of node failures.
+
+## Interactive Mode
+
+The system includes an interactive mode that allows you to manually issue commands and observe the system's behavior. Interactive mode is the default when running the application without any arguments. To run in demo mode instead, use the `--demo` flag.
+
+### Available Commands
+
+* `write <key> <value>`: Write a key-value pair to the master node
+* `read <key>`: Read a value from a random slave node
+* `delete <key>`: Delete a key-value pair from the system
+* `show`: Display the current contents of the data store
+* `logs`: Display all log entries in the replication log
+* `status`: Show the current status (UP/DOWN) of all nodes
+* `exit`: Shut down the system and exit the program
+
+### Example Session
+
+```
+> write user1 John Doe
+Write successful
+> write user2 Jane Smith
+Write successful
+> read user1
+John Doe
+> show
+--- Current Data Store ---
+user1 = John Doe
+user2 = Jane Smith
+> status
+--- Node Status ---
+master: UP
+slave-1: UP
+slave-2: DOWN
+slave-3: UP
+> delete user1
+Delete successful
+> show
+--- Current Data Store ---
+user2 = Jane Smith
+> exit
+```
 
 # Implementation Notes
 
