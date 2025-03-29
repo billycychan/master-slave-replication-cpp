@@ -1,25 +1,33 @@
-// src/system/ReplicationSystem.cpp
 #include "system/ReplicationSystem.h"
 #include <iostream>
-#include <algorithm>
 #include <chrono>
+#include <algorithm>
+#include <random>
+
+namespace replication {
+namespace system {
 
 ReplicationSystem::ReplicationSystem(int numSlaves)
-    : rng(std::random_device()()),  // Seed the random number generator
-      distribution(0.0, 1.0),       // Uniform distribution between 0 and 1
-      running(false) {
+    : random_(std::random_device()()),  // Seed the random generator
+      stopFailureSimulator_(true),
+      failureProbability_(0.0),
+      recoveryProbability_(0.0),
+      checkIntervalSeconds_(0) {
     
     // Create master node
-    master = std::make_shared<MasterNode>("master");
+    master_ = std::make_shared<node::MasterNode>("master");
     
     // Create slave nodes
     for (int i = 0; i < numSlaves; i++) {
-        auto slave = std::make_shared<SlaveNode>("slave-" + std::to_string(i), master);
-        slaves.push_back(slave);
-        master->registerSlave(slave);
+        std::string slaveId = "slave-" + std::to_string(i);
+        auto slave = std::make_shared<node::SlaveNode>(slaveId, master_);
+        slaves_.push_back(slave);
+        // Register slave with master
+        master_->registerSlave(slave);
     }
     
-    std::cout << "Replication system initialized with 1 master and " << numSlaves << " slaves" << std::endl;
+    std::cout << "Replication system initialized with 1 master and " 
+              << numSlaves << " slaves" << std::endl;
 }
 
 ReplicationSystem::~ReplicationSystem() {
@@ -27,12 +35,16 @@ ReplicationSystem::~ReplicationSystem() {
 }
 
 bool ReplicationSystem::write(const std::string& key, const std::string& value) {
-    return master->write(key, value);
+    return master_->write(key, value);
+}
+
+bool ReplicationSystem::deleteKey(const std::string& key) {
+    return master_->deleteKey(key);
 }
 
 std::string ReplicationSystem::read(const std::string& key) {
     // Try to get a working slave
-    auto slave = getRandomUpSlave();
+    std::shared_ptr<node::SlaveNode> slave = getRandomUpSlave();
     if (!slave) {
         std::cout << "All slaves are DOWN, cannot read" << std::endl;
         return "";
@@ -43,9 +55,10 @@ std::string ReplicationSystem::read(const std::string& key) {
     return value;
 }
 
-std::shared_ptr<SlaveNode> ReplicationSystem::getRandomUpSlave() const {
-    std::vector<std::shared_ptr<SlaveNode>> upSlaves;
-    for (const auto& slave : slaves) {
+std::shared_ptr<node::SlaveNode> ReplicationSystem::getRandomUpSlave() const {
+    std::vector<std::shared_ptr<node::SlaveNode>> upSlaves;
+    
+    for (const auto& slave : slaves_) {
         if (slave->isUp()) {
             upSlaves.push_back(slave);
         }
@@ -55,81 +68,115 @@ std::shared_ptr<SlaveNode> ReplicationSystem::getRandomUpSlave() const {
         return nullptr;
     }
     
-    // Generate a random index in the range [0, upSlaves.size() - 1]
-    std::uniform_int_distribution<size_t> indexDist(0, upSlaves.size() - 1);
-    size_t randomIndex = indexDist(rng);
-    return upSlaves[randomIndex];
+    // Get a random up slave
+    std::lock_guard<std::mutex> lock(randomMutex_);
+    std::uniform_int_distribution<int> dist(0, upSlaves.size() - 1);
+    return upSlaves[dist(random_)];
 }
 
 std::map<std::string, std::string> ReplicationSystem::getDataStore() const {
-    // Find a random slave that is up
-    std::vector<std::shared_ptr<SlaveNode>> upSlaves;
-    for (const auto& slave : slaves) {
-        if (slave->isUp()) {
-            upSlaves.push_back(slave);
-        }
-    }
-    
-    if (upSlaves.empty()) {
+    std::shared_ptr<node::SlaveNode> slave = getRandomUpSlave();
+    if (!slave) {
         std::cout << "All slaves are DOWN, cannot get data store" << std::endl;
         return {};
     }
     
-    // Select a random up slave
-    std::uniform_int_distribution<size_t> indexDist(0, upSlaves.size() - 1);
-    size_t randomIndex = indexDist(rng);
-    return upSlaves[randomIndex]->getDataStore();
+    return slave->getDataStore();
 }
 
-void ReplicationSystem::startFailureSimulator(double failureProbability, double recoveryProbability, int checkIntervalSeconds) {
-    if (running.load()) {
-        std::cout << "Failure simulator is already running" << std::endl;
-        return;
+void ReplicationSystem::startFailureSimulator(double failureProbability, 
+                                             double recoveryProbability, 
+                                             int checkIntervalSeconds) {
+    // Stop any existing simulator thread
+    if (!stopFailureSimulator_) {
+        shutdown();
     }
     
-    running.store(true);
-    simulatorThread = std::thread(&ReplicationSystem::failureSimulatorThread, 
-                                  this, failureProbability, recoveryProbability, checkIntervalSeconds);
+    failureProbability_ = failureProbability;
+    recoveryProbability_ = recoveryProbability;
+    checkIntervalSeconds_ = checkIntervalSeconds;
+    stopFailureSimulator_ = false;
+    
+    // Start the simulator thread
+    failureSimulatorThread_ = std::thread(&ReplicationSystem::failureSimulatorThread, this);
     
     std::cout << "Started failure simulator with check interval " 
-            << checkIntervalSeconds << " seconds" << std::endl;
+              << checkIntervalSeconds << " seconds" << std::endl;
 }
 
-void ReplicationSystem::failureSimulatorThread(double failureProbability, double recoveryProbability, int checkIntervalSeconds) {
-    while (running.load()) {
-        simulateFailureAndRecovery(failureProbability, recoveryProbability);
+void ReplicationSystem::failureSimulatorThread() {
+    while (!stopFailureSimulator_) {
+        {
+            std::unique_lock<std::mutex> lock(failureSimulatorMutex_);
+            failureSimulatorCV_.wait_for(lock, 
+                                      std::chrono::seconds(checkIntervalSeconds_),
+                                      [this] { return stopFailureSimulator_.load(); });
+            
+            if (stopFailureSimulator_) {
+                break;
+            }
+        }
         
-        // Sleep for the check interval
-        std::unique_lock<std::mutex> lock(simulatorMutex);
-        simulatorCV.wait_for(lock, std::chrono::seconds(checkIntervalSeconds), 
-                            [this]() { return !running.load(); });
+        // Run the failure and recovery simulation
+        simulateFailureAndRecovery(failureProbability_, recoveryProbability_);
     }
 }
 
-void ReplicationSystem::simulateFailureAndRecovery(double failureProbability, double recoveryProbability) {
-    for (auto& slave : slaves) {
-        if (slave->isUp() && distribution(rng) < failureProbability) {
+void ReplicationSystem::simulateFailureAndRecovery(double failureProbability, 
+                                                 double recoveryProbability) {
+    std::lock_guard<std::mutex> lock(randomMutex_);
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    
+    for (auto& slave : slaves_) {
+        if (slave->isUp() && dist(random_) < failureProbability) {
             slave->goDown();
-        } else if (!slave->isUp() && distribution(rng) < recoveryProbability) {
+        } else if (!slave->isUp() && dist(random_) < recoveryProbability) {
             slave->goUp();
         }
     }
 }
 
+std::vector<model::LogEntry> ReplicationSystem::getLogs() const {
+    if (!master_->isUp()) {
+        std::cout << "Master is DOWN, cannot get logs" << std::endl;
+        return {};
+    }
+    
+    return master_->getLogEntriesAfter(0); // Get all logs from the beginning
+}
+
+std::map<std::string, bool> ReplicationSystem::getNodesStatus() const {
+    std::map<std::string, bool> status;
+    
+    // Add master status
+    status[master_->getId()] = master_->isUp();
+    
+    // Add slave statuses
+    for (const auto& slave : slaves_) {
+        status[slave->getId()] = slave->isUp();
+    }
+    
+    return status;
+}
+
 void ReplicationSystem::shutdown() {
-    // Stop the failure simulator thread
-    if (running.load()) {
-        running.store(false);
-        simulatorCV.notify_all();
-        if (simulatorThread.joinable()) {
-            simulatorThread.join();
-        }
+    // Signal the failure simulator to stop
+    {
+        std::lock_guard<std::mutex> lock(failureSimulatorMutex_);
+        stopFailureSimulator_ = true;
+    }
+    failureSimulatorCV_.notify_all();
+    
+    // Join the failure simulator thread if it's running
+    if (failureSimulatorThread_.joinable()) {
+        failureSimulatorThread_.join();
     }
     
     // Shutdown the master node
-    if (master) {
-        master->shutdown();
-    }
+    master_->shutdown();
     
     std::cout << "Replication system shut down" << std::endl;
 }
+
+} // namespace system
+} // namespace replication
