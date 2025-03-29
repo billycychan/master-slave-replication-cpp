@@ -1,20 +1,24 @@
-// src/node/SlaveNode.cpp
+// SlaveNode.cpp
 #include "node/SlaveNode.h"
 #include "node/MasterNode.h"
 #include <iostream>
 
+namespace replication {
+namespace node {
+
 SlaveNode::SlaveNode(const std::string& id, std::shared_ptr<MasterNode> master)
-    : AbstractNode(id), master(master) {
-    // Register with the master (this is handled in the caller in our C++ implementation)
+    : AbstractNode(id),
+      master_(master) {
+    // We need to defer registration until the object is fully constructed
 }
 
 void SlaveNode::requestRecovery() {
-    if (!up.load()) {
-        std::cout << "Slave " << id << " is DOWN, cannot request recovery" << std::endl;
+    if (!up_) {
+        std::cout << "Slave " << id_ << " is DOWN, cannot request recovery" << std::endl;
         return;
     }
 
-    std::cout << "Slave " << id << " requesting recovery from master" << std::endl;
+    std::cout << "Slave " << id_ << " requesting recovery from master" << std::endl;
     recoverSlave();
 }
 
@@ -25,10 +29,28 @@ void SlaveNode::goUp() {
 }
 
 void SlaveNode::recoverSlave() {
-    if (!up.load() || !master || !master->isUp()) {
-        std::cout << "Slave " << id << " or Master is DOWN, cannot recover" << std::endl;
+    if (!up_ || !master_->isUp()) {
+        std::cout << "Master or Slave " << id_ << " is DOWN, cannot recover" << std::endl;
         return;
     }
-    
-    master->recoverSlave(std::static_pointer_cast<SlaveNode>(shared_from_this()));
+
+    std::cout << "Master starting recovery for slave " << id_ << std::endl;
+
+    replicationExecutor_->enqueue([this]() {
+        long slaveLastIndex = this->getLastLogIndex();
+        std::vector<model::LogEntry> missingEntries = master_->getLogEntriesAfter(slaveLastIndex);
+
+        std::cout << "Master sending " << missingEntries.size() 
+                  " log entries to slave " << this->id_ << std::endl;
+
+        for (const auto& entry : missingEntries) {
+            this->applyLogEntry(entry, lock_);
+        }
+
+        std::cout << "Master completed recovery for slave " 
+                  this->id_ << " up to log index " << this->lastAppliedIndex_ << std::endl;
+    });
 }
+
+} // namespace node
+} // namespace replication
