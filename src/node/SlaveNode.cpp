@@ -41,14 +41,14 @@ void SlaveNode::recoverSlave() {
         std::vector<model::LogEntry> missingEntries = master_->getLogEntriesAfter(slaveLastIndex);
 
         std::cout << "Master sending " << missingEntries.size() 
-                  " log entries to slave " << this->id_ << std::endl;
+                  << " log entries to slave " << this->id_ << std::endl;
 
         for (const auto& entry : missingEntries) {
             this->applyLogEntry(entry, lock_);
         }
 
         std::cout << "Master completed recovery for slave " 
-                  this->id_ << " up to log index " << this->lastAppliedIndex_ << std::endl;
+                  << this->id_ << " up to log index " << this->lastAppliedIndex_ << std::endl;
     });
 }
 
