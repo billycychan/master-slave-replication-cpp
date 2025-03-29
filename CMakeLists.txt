@@ -21,6 +21,9 @@ file(GLOB_RECURSE SOURCES
     "src/*.cpp"
 )
 
+# Exclude test files from main executable
+list(FILTER SOURCES EXCLUDE REGEX ".*tests/.*\.cpp$")
+
 # Create executable
 add_executable(replication-system ${SOURCES})
 
@@ -34,13 +37,49 @@ target_link_libraries(replication-system PRIVATE Threads::Threads)
 # Installation
 install(TARGETS replication-system DESTINATION bin)
 
+# Google Test
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.12.1
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
 # Enable testing
 enable_testing()
 
-# Add a simple test executable if needed
-# add_executable(replication-tests tests/test_main.cpp)
-# target_link_libraries(replication-tests PRIVATE ...)
-# add_test(NAME replication-tests COMMAND replication-tests)
+# Get all source files except main.cpp and test files
+file(GLOB_RECURSE LIB_SOURCES 
+    "src/*.cpp"
+)
+list(FILTER LIB_SOURCES EXCLUDE REGEX ".*tests/.*\.cpp$")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "src/main\.cpp$")
+
+# Add test executable
+add_executable(replication-tests 
+  src/tests/NodeTest.cpp
+  src/tests/MainTest.cpp
+  src/tests/FaultToleranceTest.cpp
+  ${LIB_SOURCES}
+)
+
+# Link against gtest and our main library code
+target_link_libraries(replication-tests
+  PRIVATE
+  gtest
+  gtest_main
+  Threads::Threads
+)
+
+# Include directories for tests
+target_include_directories(replication-tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Register tests with CTest
+include(GoogleTest)
+gtest_discover_tests(replication-tests)
 
 # Print configuration summary
 message(STATUS "CMAKE_CXX_STANDARD: ${CMAKE_CXX_STANDARD}")
