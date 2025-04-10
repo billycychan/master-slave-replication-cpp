@@ -1,6 +1,6 @@
 # Master-Slave Replication System with Fault Tolerance (C++)
 
-This project implements a Master-Slave replication pattern with fault tolerance features inspired by the Raft consensus algorithm. The system runs a master node and three slave nodes that maintain synchronized key-value stores.
+This project implements a Master-Slave replication pattern with fault tolerance features inspired by the Raft consensus algorithm. The system runs a master node and three slave nodes within a single Java application, which can be containerized using Docker.
 
 ## System Architecture
 
@@ -12,8 +12,6 @@ The system consists of the following components:
 4. **SlaveNode**: Receives updates from the master and handles read operations.
 5. **LogEntry**: Represents an entry in the replication log.
 6. **ReplicationSystem**: Manages the entire cluster and provides a simple API.
-
-![System Architecture](https://via.placeholder.com/800x400?text=Master-Slave+Replication+System+Architecture)
 
 ## Features
 
@@ -33,14 +31,18 @@ Each log entry includes:
 - Log ID (monotonically increasing)
 - Key and value of the data being updated
 - Timestamp
+```
+Log #1: WRITE key='user1' value='John' (2025-03-29 19:45:12)
+```
 
-## Prerequisites
+## Building and Running
+
+### Prerequisites
 
 - CMake 3.10 or higher
 - C++17 compliant compiler (GCC 7+, Clang 5+, MSVC 2017+)
 - pthread library
 
-## Building and Running
 
 ### Using CMake
 
@@ -77,45 +79,28 @@ The test suite includes:
 - **MainTest**: Tests the main replication system API and data consistency
 - **FaultToleranceTest**: Tests the system's ability to handle node failures during operation
 
-## Project Structure
-
-```
-├── src/                    # Source code
-│   ├── main.cpp            # Main application entry point
-│   ├── model/              # Data models
-│   │   └── LogEntry.cpp    # Log entry implementation
-│   ├── node/               # Node implementations
-│   │   ├── AbstractNode.cpp
-│   │   ├── MasterNode.cpp
-│   │   └── SlaveNode.cpp
-│   ├── system/             # System management
-│   │   └── ReplicationSystem.cpp
-│   └── tests/              # Test suite
-│       ├── NodeTest.cpp
-│       ├── MainTest.cpp
-│       └── FaultToleranceTest.cpp
-├── build/                  # Build directory (generated)
-├── CMakeLists.txt         # CMake build configuration
-└── README.md              # This file
-```
 
 ## How It Works
 
-1. Write operations are sent to the master node.
-2. The master creates a log entry and applies it to its local data store.
+1. Write and delete operations are sent to the master node.
+2. The master creates a log entry with the appropriate operation type and applies it to its local data store.
 3. The log entry is asynchronously replicated to all slave nodes.
 4. Read operations are randomly distributed across available slave nodes.
 5. When a node fails, it's marked as down and excluded from operations.
-6. When a node recovers, it requests missing log entries from the master.
+6. When a node recovers, it requests missing log entries from the master and applies them according to their operation type.
 
-# Fault Tolerance
+## Fault Tolerance
 
 The system implements fault tolerance through:
-* **Asynchronous Replication**: Writes continue even if some slaves are down.
-* **Log-Based Recovery**: Failed nodes can recover by requesting missing log entries.
-* **Node Status Tracking**: The system keeps track of which nodes are up or down.
+- **Asynchronous Replication**: Writes continue even if some slaves are down.
+- **Log-Based Recovery**: Failed nodes can recover by requesting missing log entries.
+- **Node Status Tracking**: The system keeps track of which nodes are up or down.
 
-## Demonstration Mode
+
+
+
+
+## Demonstration 
 
 The system includes a comprehensive demonstration mode that showcases all the key features. To run in demo mode, use the `--demo` flag when starting the application:
 
@@ -194,9 +179,53 @@ user2 = Jane Smith
 > exit
 ```
 
-# Implementation Notes
+## Project Structure
+
+```
+├── src/                    # Source code
+│   ├── main.cpp            # Main application entry point
+│   ├── model/              # Data models
+│   │   └── LogEntry.cpp    # Log entry implementation
+│   ├── node/               # Node implementations
+│   │   ├── AbstractNode.cpp
+│   │   ├── MasterNode.cpp
+│   │   └── SlaveNode.cpp
+│   ├── system/             # System management
+│   │   └── ReplicationSystem.cpp
+│   └── tests/              # Test suite
+│       ├── NodeTest.cpp
+│       ├── MainTest.cpp
+│       └── FaultToleranceTest.cpp
+├── build/                 # Build directory (generated)
+├── CMakeLists.txt         # CMake build configuration
+├── README.md              # This file
+└── diagrams.md            # System architecture
+```
+
+
+## System Diagrams
+
+Detailed design diagrams, including class diagrams, state charts, flowcharts, and sequence diagrams, are provided in a separate file:
+
+[Click here to view full system diagrams](./diagrams.md)
+
+These diagrams illustrate:
+
+- Class relationships and system structure
+- Master-slave replication sequence
+- Fault-tolerant recovery flows
+- Data flow across nodes and components
+- State transitions during normal and failure operation
+
+
+## Implementation Notes
 
 * Uses C++17 features like structured bindings and shared_ptr/enable_shared_from_this
 * Implements thread-safety using mutexes and atomic operations
 * Uses condition variables for interruptible waiting
 * Handles cross-platform compatibility
+
+## License
+
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+
