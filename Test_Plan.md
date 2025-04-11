@@ -8,11 +8,6 @@ This test plan outlines the testing strategy for the Master-Slave Replication Sy
 ### Project background
 The system implements a Master-Slave replication pattern with fault tolerance features inspired by the Raft consensus algorithm. It consists of a master node and three slave nodes that maintain synchronized key-value stores.
 
-### Intended audience
-- Development team
-- Quality Assurance team
-- System administrators
-- Technical stakeholders
 
 ## 2. Test Objectives
 
@@ -110,7 +105,6 @@ The system implements a Master-Slave replication pattern with fault tolerance fe
 - CMake build system
 - Automated test scripts
 - Manual test scenarios
-- Failure simulation tools
 
 ## 7. Test Environment
 
