@@ -182,25 +182,36 @@ user2 = Jane Smith
 ## Project Structure
 
 ```
-├── src/                    # Source code
-│   ├── main.cpp            # Main application entry point
-│   ├── model/              # Data models
-│   │   └── LogEntry.cpp    # Log entry implementation
-│   ├── node/               # Node implementations
-│   │   ├── AbstractNode.cpp
-│   │   ├── MasterNode.cpp
-│   │   └── SlaveNode.cpp
-│   ├── system/             # System management
-│   │   └── ReplicationSystem.cpp
-│   └── tests/              # Test suite
-│       ├── NodeTest.cpp
-│       ├── MainTest.cpp
-│       └── FaultToleranceTest.cpp
-├── build/                 # Build directory (generated)
-├── CMakeLists.txt         # CMake build configuration
-├── README.md              # This file
-└── diagrams.md            # System architecture
+master-slave-replication-cpp/
+├── .gitignore                  # Git ignore rules
+├── CMakeLists.txt              # CMake build configuration
+├── diagrams.md                 # System architecture diagrams (Mermaid)
+├── README.md                   # Project documentation
+├── Test_Plan.md                # Test plan description
+├── Test_report.md              # Test report summary
+└── src/                        # Source code
+    ├── main.cpp                # Main application entry point
+    ├── model/                  # Data model definitions
+    │   ├── LogEntry.cpp        # Log entry implementation
+    │   └── LogEntry.h          # Log entry interface
+    ├── node/                   # Node implementations (master/slave)
+    │   ├── AbstractNode.cpp
+    │   ├── AbstractNode.h
+    │   ├── MasterNode.cpp
+    │   ├── MasterNode.h
+    │   ├── Node.h              # Node interface
+    │   ├── SlaveNode.cpp
+    │   └── SlaveNode.h
+    ├── system/                 # Core system logic
+    │   ├── ReplicationSystem.cpp
+    │   └── ReplicationSystem.h
+    └── tests/                  # Unit test suite
+        ├── FaultToleranceTest.cpp
+        ├── MainTest.cpp
+        └── NodeTest.cpp
+
 ```
+
 
 
 ## System Diagrams
